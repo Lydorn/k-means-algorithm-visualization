@@ -1,0 +1,242 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta name="author" content="Nicolas Girard">
+    <title>Data Science: K-means++</title>
+
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Open Sans', sans-serif;
+            width: 100%;
+            margin: auto;
+            font-size: 1em;
+        }
+        .point {
+            stroke: #000;
+        }
+        .center {
+        }
+        #plot_area {
+            width: 100%;
+            height: 100%;
+        }
+
+        #panel {
+            position: fixed;
+            z-index: 9999;
+            top: 25px;
+            right: 25px;
+            width: 200px;
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 5px;
+            border-radius: 5px;
+            color: white;
+        }
+        .input-group {
+            height: 30px;
+        }
+        .input-small {
+            font-size: 1em;
+            width: 75px;
+            float: right;
+            background-color: rgba(255, 255, 255, 0.25);
+            text-align: right;
+            color: white;
+            border-top-color: rgba(0, 0, 0, 0.5);
+            border-left-color: rgba(0, 0, 0, 0.5);
+            border-bottom-color: rgba(255, 255, 255, 0.5);
+            border-right-color: rgba(255, 255, 255, 0.5);
+        }
+        .button {
+            font-size: 1em;
+            float: right;
+            width: 200px;
+            background-color: rgba(255, 255, 255, 0.25);
+            color: white;
+            border-top-color: rgba(255, 255, 255, 0.5);
+            border-left-color: rgba(255, 255, 255, 0.5);
+            border-bottom-color: rgba(0, 0, 0, 0.5);
+            border-right-color: rgba(0, 0, 0, 0.5);
+        }
+        .button:active {
+            background-color: rgba(255, 255, 255, 0.125);
+            border-top-color: rgba(0, 0, 0, 0.5);
+            border-left-color: rgba(0, 0, 0, 0.5);
+            border-bottom-color: rgba(255, 255, 255, 0.5);
+            border-right-color: rgba(255, 255, 255, 0.5);
+        }
+        .text-small {
+            font-size: 0.6em;
+        }
+    </style>
+</head>
+
+<body style="position: absolute;">
+    <div id="plot_area"></div>
+    <div id="panel">
+        <div class="input-group">
+            <label for="param-k">Nb de clusters =</label>
+            <input id="param-k" class="input-small" type="number" step="1" min="1" value="3" />
+        </div>
+        <div class="input-group">
+            <label for="param-n">Nb de points =</label>
+            <input id="param-n" class="input-small" type="number" step="1" min="1" value="750" />
+        </div>
+        <div class="input-group">
+            <button id="button-init-centers" class="button" >Réinitialiser les centres</button>
+        </div>
+        <div class="input-group">
+            <button id="button-init-points" class="button" >Réinitialiser les points</button>
+        </div>
+        <div>
+            <span class="text-small">Démo de K-means++ par Nicolas Girard</span>
+            <span class="text-small">Fonctionne mieux avec Chrome</span>
+        </div>
+    </div>
+</body>
+
+
+<script src="d3.min.js" charset="utf-8"></script>
+<script src="tools.js"></script>
+<script src="kmeans.js"></script>
+
+<script>
+    window.requestAnimationFrame = (function () {
+        return window.requestAnimationFrame ||
+                window.webkitRequestAnimationFrame ||
+                window.mozRequestAnimationFrame ||
+                function (callback) {
+                    window.setTimeout(callback, 1000 / 60);
+                };
+    })();
+    function updatePlot(points, clusters, centers) {
+        // DATA JOIN
+        // Join new data with old elements, if any.
+        var center = g.selectAll(".center")
+                .data(centers);
+        var point = g.selectAll(".point")
+                .data(points);
+
+
+        // UPDATE
+        // Update old elements as needed.
+        center.attr("transform", function(d, i) { return "translate(" + d.x + "," + d.y + ")"; })
+                .style('fill', function(d, i) {
+                    return colors(i);
+                });
+        point.attr("cx", function(d) { return d.x; })
+            .attr("cy", function(d) { return d.y; })
+            .style('fill', function(d, i) {
+                return colors(clusters[i]);
+            });
+
+
+        // ENTER
+        // Create new elements as needed.
+        //
+        // ENTER + UPDATE
+        // After merging the entered elements with the update selection,
+        // apply operations to both.
+
+        center.enter().append("svg:path")
+                .attr("class", "center")
+                .attr("transform", function(d, i) { return "translate(" + d.x + "," + d.y + ")"; })
+                .attr("d", d3.svg.symbol()
+                        .type("cross")
+                        .size(150))
+                .style('fill', function(d, i) {
+                    return colors(i);
+                });
+        point.enter().append("circle")
+                .attr("class", "point")
+                .attr("r", 5)
+                .attr("cx", function(d) { return d.x; })
+                .attr("cy", function(d) { return d.y; })
+                .style('fill', function(d, i) {
+                    return colors(clusters[i]);
+                });
+
+        // EXIT
+        // Remove old elements as needed.
+        center.exit().remove();
+        point.exit().remove();
+
+    }
+    function update(){
+        for (var i = 0; i < points.length; i++) {
+            points[i] = applyPointGaussianForce(points[i], mousePos, 3000, 75, 100);
+            points[i] = applyBoundaryGaussianForce(points[i], boundingbox, 3000, 5);
+            points[i] = applyBoundingbox(points[i], boundingbox);
+        }
+
+        var result = kmeans(points, k, centers, iterMax);
+
+        updatePlot(points, result.clusters, centers);
+
+        window.requestAnimationFrame(update);
+
+    }
+    function mousemove() {
+        // Ignore the click event if it was suppressed
+        if (d3.event.defaultPrevented) return;
+
+        // Extract the click location\
+        var mouse = d3.mouse(this);
+        mousePos = {x: mouse[0], y: mouse[1] };
+    }
+
+    // D3 params
+    var width = window.innerWidth - 5;
+    var height = window.innerHeight - 5;
+    var boundingbox = {
+        xMin: 0,
+        xMax: width,
+        yMin: 0,
+        yMax: height
+    }
+    var colors = d3.scale.category20();
+    var svg = d3.select("#plot_area").append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .on("mousemove", mousemove);
+    svg.append("rect")
+            .attr("width", width)
+            .attr("height", height)
+            .style("fill", "#FFF");
+    var g = svg.append("g");
+    var mousePos = {x: width/2, y: height/2};
+
+    //K-means params
+    var pointsCount = 750;
+    var k = 3;
+    var iterMax = 10;
+
+    var points = randomPoints(pointsCount, boundingbox);
+    var centers = findCenters(points, k);
+
+    document.addEventListener("DOMContentLoaded", function() {
+        window.requestAnimationFrame(update);
+    }, false);
+    document.getElementById("param-k").addEventListener("change", function(e) {
+        k = this.value;
+    });
+    document.getElementById("param-n").addEventListener("change", function(e) {
+        pointsCount = this.value;
+        var n = points.length;
+        if (pointsCount <= n) {
+            points = points.slice(0, pointsCount);
+        }
+        else {
+            points.push.apply(points, randomPoints(pointsCount - n, boundingbox));
+        }
+    });
+    document.getElementById("button-init-centers").addEventListener("click", function(e) {
+        centers = findCenters(points, k);
+    });
+    document.getElementById("button-init-points").addEventListener("click", function(e) {
+        points = randomPoints(pointsCount, boundingbox);
+    });
+</script>
+</html>
